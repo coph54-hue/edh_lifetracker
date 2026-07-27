@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>EDH ライフカウンター</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ===== 上部バー ===== -->
+<header id="topbar">
+  <div class="tb-group tb-left">
+    <div class="tb-clock" id="clock">--:--</div>
+  </div>
+
+  <div class="tb-group tb-center">
+    <div class="tb-timer" id="timer">00:00</div>
+    <button class="tb-btn" id="btnTimer" title="スタート / 一時停止">
+      <span id="btnTimerIcon">▶</span>
+    </button>
+    <button class="tb-btn" id="btnTimerReset" title="タイマーリセット">↺</button>
+  </div>
+
+  <div class="tb-group tb-right">
+    <button class="tb-btn" id="btnUndo" title="元に戻す">↶<span class="tb-label">戻す</span></button>
+    <button class="tb-btn" id="btnHistory" title="履歴">≡<span class="tb-label">履歴</span></button>
+    <button class="tb-btn" id="btnSettings" title="設定">⚙<span class="tb-label">設定</span></button>
+    <button class="tb-btn danger" id="btnReset" title="ゲームリセット">⟳<span class="tb-label">リセット</span></button>
+  </div>
+</header>
+
+<!-- ===== プレイヤー盤面 ===== -->
+<main id="board"></main>
+
+<!-- ===== 設定 ===== -->
+<div class="overlay" id="settingsOverlay" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2>設定</h2>
+      <button class="sheet-close" data-close="settingsOverlay">✕</button>
+    </div>
+    <div class="sheet-body" id="settingsBody"></div>
+    <div class="sheet-foot">
+      <button class="btn primary" data-close="settingsOverlay">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 履歴 ===== -->
+<div class="overlay" id="historyOverlay" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2>入力履歴</h2>
+      <button class="sheet-close" data-close="historyOverlay">✕</button>
+    </div>
+    <div class="sheet-body"><ul class="hist" id="historyList"></ul></div>
+    <div class="sheet-foot">
+      <button class="btn" id="btnUndo2">↶ 直前を取り消す</button>
+      <button class="btn" id="btnClearHistory">履歴を消去</button>
+      <button class="btn primary" data-close="historyOverlay">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 汎用ダイアログ ===== -->
+<div class="overlay" id="dialogOverlay" hidden>
+  <div class="sheet small">
+    <div class="sheet-head"><h2 id="dlgTitle">確認</h2></div>
+    <div class="sheet-body">
+      <p id="dlgMessage"></p>
+      <input type="text" id="dlgInput" hidden maxlength="16">
+    </div>
+    <div class="sheet-foot">
+      <button class="btn" id="dlgCancel">キャンセル</button>
+      <button class="btn primary" id="dlgOk">OK</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

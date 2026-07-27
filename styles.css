@@ -1,0 +1,665 @@
+/* ==========================================================================
+   EDH ライフカウンター
+   画面サイズに応じて全要素が自動スケールする (コンテナクエリ単位 cqmin を使用)
+   ========================================================================== */
+
+:root {
+  --bg: #0b0e13;
+  --bg-2: #141922;
+  --line: #2a3240;
+  --fg: #e8edf5;
+  --fg-dim: #8b97a8;
+  --danger: #d9534f;
+  --ok: #4a9e6a;
+  --topbar-h: clamp(38px, 5.2vh, 60px);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
+  font-feature-settings: "palt";
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; touch-action: manipulation; }
+
+/* ==========================================================================
+   上部バー
+   ========================================================================== */
+
+#topbar {
+  flex: 0 0 auto;
+  height: var(--topbar-h);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.tb-group { display: flex; align-items: center; gap: 6px; }
+.tb-left { justify-self: start; }
+.tb-right { justify-self: end; }
+
+.tb-clock, .tb-timer {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: .02em;
+  line-height: 1;
+}
+.tb-clock { font-size: clamp(15px, 2.4vh, 24px); color: var(--fg-dim); }
+.tb-timer { font-size: clamp(18px, 3vh, 30px); min-width: 4.2em; text-align: center; }
+.tb-timer.running { color: var(--ok); }
+
+.tb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: calc(var(--topbar-h) - 12px);
+  padding: 0 clamp(8px, 1.4vh, 14px);
+  border-radius: 8px;
+  background: #1e2530;
+  border: 1px solid var(--line);
+  font-size: clamp(14px, 2.2vh, 20px);
+  line-height: 1;
+  white-space: nowrap;
+}
+.tb-btn:active { background: #2b3543; transform: scale(.96); }
+.tb-btn.danger { border-color: #5a2f2f; color: #f0a9a6; }
+.tb-label { font-size: clamp(11px, 1.6vh, 15px); }
+@media (max-width: 700px) { .tb-label { display: none; } }
+
+/* ==========================================================================
+   盤面グリッド
+   ========================================================================== */
+
+#board {
+  flex: 1 1 auto;
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+  min-height: 0;
+}
+
+.seat {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 回転 0/180: パネルはセルをそのまま満たす */
+.panel {
+  position: absolute;
+  inset: 0;
+  container-type: size;
+  border-radius: 12px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 16%, var(--bg-2)), var(--bg-2) 60%);
+  border: 2px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  display: grid;
+  overflow: hidden;
+}
+
+/* パネル自身はコンテナクエリの「コンテナ」なので、
+   実際のレイアウトは子要素 .p-inner に持たせる (コンテナは自分自身を query できない) */
+.p-inner {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.seat[data-rot="180"] .panel { transform: rotate(180deg); }
+
+/* 回転 90/270: 幅と高さを入れ替えて中央で回す */
+.seat[data-rot="90"] .panel,
+.seat[data-rot="270"] .panel {
+  inset: auto;
+  top: 50%;
+  left: 50%;
+  width: var(--sh, 100%);
+  height: var(--sw, 100%);
+}
+.seat[data-rot="90"]  .panel { transform: translate(-50%, -50%) rotate(90deg); }
+.seat[data-rot="270"] .panel { transform: translate(-50%, -50%) rotate(270deg); }
+
+.panel.dead { filter: grayscale(.55) brightness(.72); }
+
+/* ---- ヘッダー行 ---- */
+.p-head {
+  display: flex;
+  align-items: center;
+  gap: 1.4cqmin;
+  padding: 1.6cqmin 2cqmin 0.4cqmin;
+  min-width: 0;
+}
+.p-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  font-size: 5.4cqmin;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0.6cqmin 1cqmin;
+  border-radius: 1.4cqmin;
+}
+.p-name:active { background: #ffffff18; }
+
+/* トグル系チップ (統治者 / 昇殿) */
+.flag {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8cqmin;
+  height: 8.6cqmin;
+  padding: 0 2.2cqmin;
+  border-radius: 2cqmin;
+  border: 0.5cqmin solid var(--line);
+  background: #ffffff0d;
+  font-size: 4.4cqmin;
+  color: var(--fg-dim);
+  line-height: 1;
+}
+.flag .ico { font-size: 5.2cqmin; }
+.flag.on {
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.flag:active { transform: scale(.94); }
+
+/* ---- ライフ行 ---- */
+.p-life {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr 2.6fr 1.1fr 1fr;
+  align-items: stretch;
+  min-height: 0;
+  padding: 0 1.6cqmin;
+  gap: 0.8cqmin;
+}
+.p-life > * { min-width: 0; }
+.life-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2.4cqmin;
+  background: #ffffff0f;
+  border: 0.5cqmin solid #ffffff12;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.life-btn.big { font-size: 9cqmin; }
+.life-btn.small { font-size: 6cqmin; color: var(--fg-dim); }
+.life-btn:active { background: color-mix(in srgb, var(--accent) 42%, transparent); transform: scale(.95); }
+
+.life-val {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  /* ここは「最大サイズ」。実際に入りきらなければ fitLifeNumber() が縮める */
+  font-size: 30cqmin;
+  font-weight: 800;
+  line-height: .9;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.life-num { flex: 0 0 auto; white-space: nowrap; }
+.life-val.low { color: #f0a9a6; }
+.life-val.out { color: var(--danger); }
+
+/* 直近数秒の増減量ポップアップ (「今いくつ減らした?」を見失わないため) */
+.life-delta {
+  position: absolute;
+  top: 0.5cqmin;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.4cqmin 2.2cqmin 0.8cqmin;
+  border-radius: 2.6cqmin;
+  background: #05070aee;
+  border: 0.5cqmin solid currentColor;
+  font-size: 9cqmin;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .45s ease;
+}
+.life-delta.show { opacity: 1; }
+.life-delta.plus { color: #6fdc9b; }
+.life-delta.minus { color: #ff8f86; }
+.life-delta.zero { color: var(--fg-dim); }
+
+/* ---- カウンター行 ---- */
+.p-counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1cqmin;
+  padding: 1.2cqmin 1.6cqmin 0;
+  justify-content: center;
+}
+
+.stepper {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: stretch;
+  border-radius: 2cqmin;
+  background: #ffffff0d;
+  border: 0.5cqmin solid #ffffff14;
+  overflow: hidden;
+  height: 11cqmin;
+}
+.stepper.hot { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 24%, transparent); }
+.stepper.zero { opacity: .58; }
+
+.st-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 8.5cqmin;
+  font-size: 6cqmin;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--fg-dim);
+}
+.st-btn:active { background: color-mix(in srgb, var(--accent) 46%, transparent); color: var(--fg); }
+
+.st-core {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1.2cqmin;
+  min-width: 0;            /* 幅が足りないときに ± ボタンへ文字が乗り上げないようにする */
+  overflow: hidden;
+  gap: 0.2cqmin;
+}
+.st-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  font-size: 3.1cqmin;
+  color: var(--fg-dim);
+  line-height: 1;
+  white-space: nowrap;
+}
+.st-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.st-mark {
+  flex: 0 0 auto;
+  margin-left: 0.45em;
+  padding: 0.1em 0.35em;
+  border-radius: 0.4em;
+  background: #ffffff26;
+  color: var(--fg);
+  font-weight: 700;
+}
+.st-value { font-size: 5.6cqmin; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+
+/* ---- 統率者ダメージ / 統率者税 = 座席のミニマップ ---- */
+.p-cmd {
+  display: grid;
+  gap: 1cqmin;
+  padding: 1.2cqmin 1.6cqmin 1.8cqmin;
+  align-content: center;   /* 縦に余った分はマップ全体を中央に寄せ、間延びさせない */
+}
+
+.cmd-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.7cqmin;
+  min-width: 0;
+  min-height: 0;
+}
+/* 自分の席 (統率者税) は破線で囲って「ここが自分」と分かるようにする */
+.cmd-cell.own {
+  border-radius: 2cqmin;
+  outline: 0.5cqmin dashed color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: -0.5cqmin;
+}
+.cmd-cell .stepper { width: 100%; }
+.p-cmd .stepper { height: 10.4cqmin; }
+.p-cmd .st-btn { width: 8cqmin; font-size: 5.4cqmin; }
+.p-cmd .st-label { font-size: 3cqmin; }
+.p-cmd .st-core { padding: 0 0.6cqmin; }
+
+/* マスが狭いときは名前を落とし、色ドット・短縮名・A/B と数値だけにする。
+   「誰か」は座席マップ上の位置で分かるので、名前より数値の見やすさを優先する。 */
+.st-short { display: none; }
+/* display:none にすると幅を測れなくなり判定が発振するので、幅だけ 0 にして隠す */
+.p-cmd.tight .st-name { max-width: 0; }
+.p-cmd.tight .st-short { display: inline; }
+
+.p-cmd.xtight .st-btn { width: 7cqmin; font-size: 5cqmin; }
+.p-cmd.xtight .st-value { font-size: 4.6cqmin; }
+.p-cmd.xtight .st-label { font-size: 2.5cqmin; }
+.p-cmd.xtight .st-core { padding: 0 0.3cqmin; }
+.p-cmd .st-value { font-size: 5.2cqmin; }
+/* チップ数が多い席用の縮小モード */
+.p-cmd.dense .stepper { height: 8.8cqmin; }
+.p-cmd.dense .st-btn { width: 6.8cqmin; font-size: 4.6cqmin; }
+.p-cmd.dense .st-label { font-size: 2.6cqmin; }
+.p-cmd.dense .st-value { font-size: 4.4cqmin; }
+.p-cmd.dense { gap: 0.7cqmin; }
+
+.st-dot {
+  display: inline-block;
+  width: 2.2cqmin; height: 2.2cqmin;
+  border-radius: 50%;
+  margin-right: 0.8cqmin;
+  vertical-align: baseline;
+}
+
+/* 横長のパネル (上下対面・囲みレイアウトの左右席など) は
+   ライフとカウンター群を左右に振り分けて、横の余白を使い切る */
+@container (min-aspect-ratio: 19 / 10) {
+  .p-inner {
+    /* カウンター列は中身の幅ぴったりにして統率者ダメージ側へ寄せ、
+       浮いた横幅はライフ欄に回す */
+    grid-template-columns: 1.2fr auto 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+      "head head head"
+      "life counters cmd";
+  }
+  .p-head { grid-area: head; }
+  .p-life { grid-area: life; }
+  .p-counters { grid-area: counters; }
+  .p-cmd { grid-area: cmd; }
+
+  /* カウンターは縦に積み、入りきらなければ列を増やす */
+  .p-counters {
+    flex-flow: column wrap;
+    align-content: center;
+    justify-content: center;
+    padding: 1.2cqmin;
+    gap: 1.2cqmin;
+  }
+  /* 座席ミニマップは列いっぱいに広げる */
+  .p-cmd { padding: 1.2cqmin; gap: 0.9cqmin; }
+
+  /* 横に余裕ができた分、要素をひと回り大きく。
+     ライフの数字は 3 桁でもライフ列からはみ出さないよう cqw で頭打ちにする */
+  .life-val { font-size: 52cqmin; }
+  .life-btn.big { font-size: 12cqmin; }
+  .life-btn.small { font-size: 8cqmin; }
+
+  .stepper { height: 12.5cqmin; }
+  .st-btn { width: 9.5cqmin; font-size: 6.8cqmin; }
+  .st-label { font-size: 3.6cqmin; }
+  .st-value { font-size: 6.4cqmin; }
+  .st-dot { width: 2.6cqmin; height: 2.6cqmin; }
+  .p-cmd .stepper { height: 12cqmin; }
+  .p-cmd .st-btn { width: 9cqmin; font-size: 6.2cqmin; }
+  .p-cmd .st-label { font-size: 3.5cqmin; max-width: 30cqmin; }
+  .p-cmd .st-value { font-size: 6cqmin; }
+  .p-cmd.dense .stepper { height: 10cqmin; }
+  .p-cmd.dense .st-btn { width: 7.6cqmin; font-size: 5.2cqmin; }
+  .p-cmd.dense .st-label { font-size: 3cqmin; max-width: 25cqmin; }
+  .p-cmd.dense .st-value { font-size: 5.2cqmin; }
+
+  .p-name { font-size: 6.4cqmin; }
+  .flag { height: 10cqmin; font-size: 5cqmin; border-radius: 2.4cqmin; padding: 0 2.6cqmin; }
+  .flag .ico { font-size: 6cqmin; }
+}
+
+/* あふれた場合でも他の行に重ならないようにする */
+.p-counters, .p-cmd { min-height: 0; overflow: hidden; }
+
+/* ==========================================================================
+   オーバーレイ / シート
+   ========================================================================== */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: #000000b0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  z-index: 50;
+}
+.overlay[hidden] { display: none; }
+
+.sheet {
+  width: min(920px, 100%);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.sheet.small { width: min(440px, 100%); }
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.sheet-head h2 { font-size: 18px; font-weight: 700; }
+.sheet-close { font-size: 20px; padding: 4px 10px; color: var(--fg-dim); }
+
+.sheet-body { padding: 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.sheet-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.btn {
+  padding: 9px 18px;
+  border-radius: 8px;
+  background: #1e2530;
+  border: 1px solid var(--line);
+  font-size: 15px;
+}
+.btn:active { background: #2b3543; }
+.btn.primary { background: #2f5a8f; border-color: #3b6ea8; }
+
+/* ---- 設定フォーム ---- */
+.field { margin-bottom: 20px; }
+.field > label.title {
+  display: block;
+  font-size: 13px;
+  color: var(--fg-dim);
+  margin-bottom: 8px;
+  letter-spacing: .04em;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: #1a212c;
+  border: 1px solid var(--line);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.chip[aria-pressed="true"] { background: #2f5a8f; border-color: #4d86c4; }
+.chip:active { transform: scale(.96); }
+
+.num-input {
+  width: 110px;
+  padding: 8px 10px;
+  font-size: 16px;
+  text-align: center;
+  border-radius: 8px;
+  background: #0e131b;
+  border: 1px solid var(--line);
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.text-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 16px;
+  border-radius: 8px;
+  background: #0e131b;
+  border: 1px solid var(--line);
+  color: var(--fg);
+}
+
+/* レイアウトプレビュー */
+.layouts { display: flex; flex-wrap: wrap; gap: 10px; }
+.layout-opt {
+  width: 128px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #1a212c;
+  border: 2px solid var(--line);
+  text-align: center;
+}
+.layout-opt[aria-pressed="true"] { border-color: #4d86c4; background: #22354a; }
+.lp {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  margin-bottom: 6px;
+}
+.lp span {
+  border-radius: 3px;
+  background: #4d86c4;
+  position: relative;
+}
+.lp span::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 40%;
+  height: 3px;
+  border-radius: 2px;
+  background: #0b0e13a0;
+  transform: translateX(-50%);
+}
+.lp span[data-r="0"]::after   { bottom: 3px; }
+.lp span[data-r="180"]::after { top: 3px; }
+.lp span[data-r="90"]::after  { top: 50%; left: 3px; width: 3px; height: 40%; transform: translateY(-50%); }
+.lp span[data-r="270"]::after { top: 50%; left: auto; right: 3px; width: 3px; height: 40%; transform: translateY(-50%); }
+.layout-opt .cap { font-size: 12px; color: var(--fg-dim); }
+
+/* プレイヤー設定テーブル */
+.ptable { display: flex; flex-direction: column; gap: 10px; }
+.prow {
+  display: grid;
+  grid-template-columns: 22px minmax(0,1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #1a212c;
+  border: 1px solid var(--line);
+}
+.pdot { width: 18px; height: 18px; border-radius: 50%; }
+.pcolors { display: flex; gap: 5px; }
+.pcolor { width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; }
+.pcolor[aria-pressed="true"] { border-color: #fff; }
+.seg { display: flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.seg button { padding: 7px 12px; font-size: 13px; background: #131a24; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: #2f5a8f; }
+
+/* トグルスイッチ */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.toggle-row:last-child { border-bottom: none; }
+.toggle-row .desc { font-size: 12px; color: var(--fg-dim); margin-top: 3px; }
+.switch {
+  flex: 0 0 auto;
+  width: 52px; height: 30px;
+  border-radius: 15px;
+  background: #2a3240;
+  position: relative;
+  transition: background .15s;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: #8b97a8;
+  transition: transform .15s, background .15s;
+}
+.switch[aria-pressed="true"] { background: #2f5a8f; }
+.switch[aria-pressed="true"]::after { transform: translateX(22px); background: #fff; }
+
+.note {
+  font-size: 12px;
+  color: var(--fg-dim);
+  line-height: 1.6;
+  margin-top: 8px;
+}
+
+/* ---- 履歴 ---- */
+.hist { list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.hist li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0,1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px;
+  border-bottom: 1px solid #ffffff0d;
+  font-size: 14px;
+}
+.hist .h-time { color: var(--fg-dim); font-variant-numeric: tabular-nums; font-size: 12px; }
+.hist .h-who { font-weight: 700; white-space: nowrap; }
+.hist .h-what { color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist .h-delta { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+.hist .h-delta.plus { color: var(--ok); }
+.hist .h-delta.minus { color: #f0a9a6; }
+.hist .empty { color: var(--fg-dim); padding: 20px; text-align: center; }
+
+/* トースト */
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%) translateY(20px);
+  background: #1e2530;
+  border: 1px solid var(--line);
+  padding: 10px 20px;
+  border-radius: 24px;
+  font-size: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s, transform .18s;
+  z-index: 100;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }

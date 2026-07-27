@@ -1,0 +1,18 @@
+{
+  "name": "EDH ライフカウンター",
+  "short_name": "EDH Life",
+  "description": "マジック・ザ・ギャザリング コマンダー(EDH)専用のタブレット向けライフカウンター。全ての数値をメイン画面から1タップで操作できます。",
+  "lang": "ja",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0b0e13",
+  "theme_color": "#0b0e13",
+  "categories": ["games", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
