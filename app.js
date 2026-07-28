@@ -129,8 +129,10 @@ function newPlayer(i) {
     ring: 0,
     ascend: false,
     tax: [0, 0],
-    // dmg[相手のindex][相手の統率者index]
+    // dmg[攻撃元playerのindex][その統率者index]
+    // 自分のindexは「自分の統率者を奪われて殴られた」ぶんに使う
     dmg: Array.from({ length: MAX_PLAYERS }, () => [0, 0]),
+    showSelfDmg: false,
   };
 }
 
@@ -200,6 +202,7 @@ function migrate(base, saved) {
         if (Number.isFinite(p[k])) t[k] = p[k];
       });
       t.ascend = !!p.ascend;
+      t.showSelfDmg = !!p.showSelfDmg;
       if (Array.isArray(p.tax)) t.tax = [p.tax[0] | 0, p.tax[1] | 0];
       if (Array.isArray(p.dmg)) {
         p.dmg.slice(0, MAX_PLAYERS).forEach((arr, j) => {
@@ -509,8 +512,11 @@ function buildCmd(i, ref) {
     cell.style.gridArea = `${r1} / ${c1} / ${r2} / ${c2}`;
 
     if (j === i) {
-      // 自分の席 → 統率者税を置く
+      // 自分の席 → 統率者税と、長押しで出る「自分の統率者ダメージ」
       cell.classList.add('own');
+      Object.assign(cell.dataset, { act: 'selfdmg', p: String(i), hold: '1', rep: '0' });
+      ref.ownCell = cell;
+
       if (S.settings.showTax) {
         for (let c = 0; c < op.commanders; c++) {
           const st = stepper('統率者税', { act: 'tax', p: String(i), c: String(c) },
@@ -519,6 +525,15 @@ function buildCmd(i, ref) {
           cell.appendChild(st.wrap);
           chips++;
         }
+      }
+
+      // 自分の統率者を奪われて殴られた場合。稀なので既定では隠しておく
+      for (let c = 0; c < op.commanders; c++) {
+        const st = stepper('自分の統率者', { act: 'dmg', p: String(i), s: String(i), c: String(c) },
+          { dotColor: colorOf(op), short: '自分', mark: op.commanders > 1 ? COMMANDER_MARK[c] : null });
+        st.wrap.classList.add('self-dmg');
+        ref.dmg[i][c] = st;
+        cell.appendChild(st.wrap);
       }
     } else {
       // 相手の席 → その相手の統率者から受けたダメージ
@@ -562,10 +577,16 @@ const cmdObserver = new ResizeObserver(entries => {
 
     // まず極端に狭いときはボタンと数値ごと一段小さくする
     wrap.classList.toggle('xtight', cellWidth < 104);
+    // 自分の席だけチップが増える (統率者税 + 自分の統率者ダメージ) ので、
+    // 横に余裕があれば 2 列に並べて縦のはみ出しを防ぐ。
+    // 自分の席は複数列にまたがることがあるので、均等割りではなく実寸で測る。
+    const ownCell = wrap.querySelector('.cmd-cell.own');
+    wrap.classList.toggle('own2col', !!ownCell && ownCell.offsetWidth >= 260);
 
     // 名前が実際に入りきるかを測って決める
     let need = 0, avail = Infinity;
     wrap.querySelectorAll('.stepper').forEach(st => {
+      if (!st.offsetParent) return;   // 隠れているチップ (自分の統率者ダメージ) は測らない
       const core = st.querySelector('.st-core');
       const name = st.querySelector('.st-name');
       if (!core || !name) return;
@@ -616,7 +637,6 @@ function update() {
     });
 
     activePlayers().forEach((op, j) => {
-      if (j === i) return;
       for (let c = 0; c < op.commanders; c++) {
         const st = r.dmg[j][c];
         if (!st) continue;
@@ -634,6 +654,12 @@ function update() {
       st.val.textContent = String(p.tax[c]);
       st.wrap.classList.toggle('zero', p.tax[c] === 0);
     });
+
+    // 自分の統率者ダメージは、長押しで出したときか 1 以上あるときだけ見せる
+    if (r.ownCell) {
+      const selfTotal = p.dmg[i].slice(0, p.commanders).reduce((a, b) => a + b, 0);
+      r.ownCell.classList.toggle('reveal', p.showSelfDmg || selfTotal > 0);
+    }
 
     r.panel.classList.toggle('dead', lethal);
   });
@@ -709,6 +735,17 @@ function doAction(node) {
       pushHistory({ act: 'ascend', p: i, from, to: p.ascend });
       break;
     }
+    case 'selfdmg': {
+      // 統率者税欄の長押し → 自分の統率者ダメージ欄の表示切り替え
+      const selfTotal = p.dmg[i].slice(0, p.commanders).reduce((a, b) => a + b, 0);
+      p.showSelfDmg = !p.showSelfDmg;
+      update();
+      save();
+      toast(p.showSelfDmg ? '自分の統率者ダメージを表示しました'
+        : selfTotal > 0 ? '0 になるまでは表示したままになります'
+        : '自分の統率者ダメージを隠しました');
+      return;
+    }
     case 'name':
       renamePlayer(i);
       return;
@@ -759,9 +796,10 @@ function describe(e) {
       const src = S.players[e.s];
       const mark = src && src.commanders > 1 ? ` ${COMMANDER_MARK[e.c]}` : '';
       const life = e.lifeFrom != null ? ` / ライフ ${e.lifeFrom} → ${e.lifeTo}` : '';
+      const from = e.s === e.p ? '自分の統率者' : nameOf(e.s);
       return {
         who: nameOf(e.p),
-        what: `統率者ダメージ (${nameOf(e.s)}${mark})`,
+        what: `統率者ダメージ (${from}${mark})`,
         delta: e.to - e.from,
         tail: `${e.from} → ${e.to}${life}`,
       };
@@ -786,10 +824,19 @@ function stopRepeat() {
   repeatNode = null;
 }
 
+const HOLD_MS = 550;
+
 board.addEventListener('pointerdown', e => {
   const node = e.target.closest('[data-act]');
   if (!node) return;
   e.preventDefault();
+
+  // 長押しでのみ発火する操作 (滅多に使わないので誤爆させない)
+  if (node.dataset.hold === '1') {
+    repeatDelay = setTimeout(() => { doAction(node); stopRepeat(); }, HOLD_MS);
+    return;
+  }
+
   doAction(node);
   if (node.dataset.rep === '0') return;
   repeatNode = node;
@@ -934,6 +981,7 @@ async function resetGame() {
     p.ascend = false;
     p.tax = [0, 0];
     p.dmg = Array.from({ length: MAX_PLAYERS }, () => [0, 0]);
+    p.showSelfDmg = false;
   });
   S.monarch = null;
   S.timer = { running: false, base: 0, startedAt: 0 };

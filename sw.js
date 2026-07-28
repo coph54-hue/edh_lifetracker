@@ -1,7 +1,7 @@
 /* オフライン動作用 Service Worker: アプリシェルをキャッシュして常にオフラインで起動できるようにする */
 'use strict';
 
-const CACHE = 'edh-life-counter-v6';
+const CACHE = 'edh-life-counter-v7';
 const ASSETS = [
   './',
   './index.html',

@@ -329,13 +329,17 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 }
 
 .cmd-cell {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+  display: grid;
+  align-content: center;
   gap: 0.7cqmin;
   min-width: 0;
   min-height: 0;
 }
+/* grid なので、入りきらなくてもチップが押し潰されず min-content を保つ
+   (flex だと縮んで数字が読めなくなる) */
+.cmd-cell { grid-auto-rows: min-content; }
+/* 横に余裕があるマスでは、自分の席のチップを 2 列にして縦を詰める */
+.p-cmd.own2col .cmd-cell.own.reveal { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 /* 自分の席 (統率者税) は破線で囲って「ここが自分」と分かるようにする */
 .cmd-cell.own {
   border-radius: 2cqmin;
@@ -343,6 +347,10 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   outline-offset: -0.5cqmin;
 }
 .cmd-cell .stepper { width: 100%; }
+
+/* 自分の統率者を奪われて殴られたぶん。稀なので統率者税欄の長押しで出す */
+.self-dmg { display: none; }
+.cmd-cell.own.reveal .self-dmg { display: inline-grid; }
 .p-cmd .stepper { height: 10.4cqmin; }
 .p-cmd .st-btn { width: 8cqmin; font-size: 5.4cqmin; }
 .p-cmd .st-label { font-size: 3cqmin; }
