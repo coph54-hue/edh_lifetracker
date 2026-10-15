@@ -89,6 +89,9 @@ const $ = sel => document.querySelector(sel);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const activePlayers = () => S.players.slice(0, S.settings.playerCount);
 const colorOf = p => COLORS[clamp(p.color, 0, COLORS.length - 1)].hex;
+/* 座席レイアウトはタブレット / スマホ共通。
+   スマホをテーブル中央に置いて四方から囲む使い方に合わせるため、
+   スマホ側でも選んだ配置 (手前2/奞2、囲みなど) をそのまま使う。 */
 const currentLayout = () => {
   const list = LAYOUTS[S.settings.playerCount];
   return list.find(l => l.id === S.settings.layout[S.settings.playerCount]) || list[0];
@@ -128,6 +131,7 @@ function newPlayer(i) {
     speed: 0,
     ring: 0,
     ascend: false,
+    fortitude: false,   // 不屈の物語 (昇殿と同じく個人ごとの ON/OFF)
     tax: [0, 0],
     // dmg[攻撃元playerのindex][その統率者index]
     // 自分のindexは「自分の統率者を奪われて殴られた」ぶんに使う
@@ -148,10 +152,15 @@ function defaultState() {
       showTax: true,
       showMonarch: true,
       showAscend: true,
+      showFortitude: true,
+      phoneMode: false,
+      cmdDmgPlusLeft: true,   // 統率者ダメージは ＋ を左に (ダメージ＝左タップでライフと揃える)
+      taxPlusLeft: false,     // 統率者税は従来どおり − が左
       visibleCounters: { poison: true, energy: true, exp: true, speed: true, ring: true },
     },
     players: Array.from({ length: MAX_PLAYERS }, (_, i) => newPlayer(i)),
     monarch: null,
+    firstPlayer: null,
     timer: { running: false, base: 0, startedAt: 0 },
     history: [],
   };
@@ -202,6 +211,7 @@ function migrate(base, saved) {
         if (Number.isFinite(p[k])) t[k] = p[k];
       });
       t.ascend = !!p.ascend;
+      t.fortitude = !!p.fortitude;
       t.showSelfDmg = !!p.showSelfDmg;
       if (Array.isArray(p.tax)) t.tax = [p.tax[0] | 0, p.tax[1] | 0];
       if (Array.isArray(p.dmg)) {
@@ -212,6 +222,7 @@ function migrate(base, saved) {
     });
   }
   if (Number.isInteger(saved.monarch) || saved.monarch === null) s.monarch = saved.monarch;
+  if (Number.isInteger(saved.firstPlayer) || saved.firstPlayer === null) s.firstPlayer = saved.firstPlayer;
   if (saved.timer) Object.assign(s.timer, saved.timer);
   if (Array.isArray(saved.history)) s.history = saved.history.slice(0, HISTORY_LIMIT);
   return s;
@@ -278,6 +289,10 @@ function buildBoard() {
 function buildHead(i, ref) {
   const head = el('div', 'p-head');
 
+  const first = el('span', 'first-badge', '先攻');
+  ref.first = first;
+  head.appendChild(first);
+
   const name = el('button', 'p-name');
   name.dataset.act = 'name';
   name.dataset.p = String(i);
@@ -285,24 +300,24 @@ function buildHead(i, ref) {
   ref.name = name;
   head.appendChild(name);
 
-  if (S.settings.showMonarch) {
+  const flag = (act, ico, label) => {
     const b = el('button', 'flag');
-    b.dataset.act = 'monarch';
-    b.dataset.p = String(i);
-    b.dataset.rep = '0';
-    b.innerHTML = '<span class="ico">♛</span>統治者';
-    ref.monarch = b;
+    Object.assign(b.dataset, { act, p: String(i), rep: '0' });
+    b.append(el('span', 'ico', ico), el('span', 'fl-label', label));
     head.appendChild(b);
-  }
-  if (S.settings.showAscend) {
-    const b = el('button', 'flag');
-    b.dataset.act = 'ascend';
-    b.dataset.p = String(i);
-    b.dataset.rep = '0';
-    b.innerHTML = '<span class="ico">⛰</span>昇殿';
-    ref.ascend = b;
-    head.appendChild(b);
-  }
+    return b;
+  };
+
+  let count = 0;
+  if (S.settings.showMonarch) { ref.monarch = flag('monarch', '♛', '統治者'); count++; }
+  if (S.settings.showAscend) { ref.ascend = flag('ascend', '⛰', '昇殿'); count++; }
+  if (S.settings.showFortitude) { ref.fortitude = flag('fortitude', '❖', '物語'); count++; }
+  // 共闘はゲーム中の状態ではなく席の設定なので、見た目を少し変えて最後に置く
+  ref.partner = flag('partner', 'Ⅱ', '共闘');
+  ref.partner.classList.add('setup');
+  count++;
+
+  head.dataset.flags = String(count);
   return head;
 }
 
@@ -357,13 +372,63 @@ function fitLifeNumber(ref) {
   if (size < base) num.style.fontSize = Math.floor(size) + 'px';
 }
 
-function fitAllLifeNumbers() { refs.forEach(r => r && fitLifeNumber(r)); }
+/* 統率者ダメージ欄を大きくした結果パネルに収まらなくなったら、元の大きさに落とす。
+   判定は必ず compact を外した状態から行うので、付けたり外したりを繰り返すことはない。 */
+function fitCmdDensity(ref) {
+  const panel = ref.panel;
+  const cmd = panel.querySelector('.p-cmd');
+  const inner = panel.querySelector('.p-inner');
+  const life = panel.querySelector('.p-life');
+  if (!cmd || !inner || !life) return;
+
+  // 入りきらなければ段階的に詰めていく。
+  // 必ず「無印」から測り直して段階を上げるだけなので、行ったり来たりしない。
+  cmd.classList.remove('own2col', 'compact', 'compact2');
+  const 収まらない = () =>
+    inner.scrollHeight > inner.clientHeight + 1 ||
+    cmd.scrollHeight > cmd.clientHeight + 1 ||       // 横長パネルではマップが内側で切り落ちる
+    life.offsetHeight < inner.clientHeight * 0.1;
+  if (!収まらない()) return;
+
+  // まずは自分の席 (統率者税 + 自分の統率者ダメージでチップが多い) を 2 列にする。
+  // 幅が狭いマスでやると逆に横が潰れるので、実寸で余裕を確かめる。
+  const ownCell = cmd.querySelector('.cmd-cell.own');
+  if (ownCell && ownCell.offsetWidth >= 210) {
+    cmd.classList.add('own2col');
+    if (!収まらない()) return;
+  }
+  cmd.classList.add('compact');
+  if (!収まらない()) return;
+  cmd.classList.add('compact2');
+}
+
+/* フラグが多くて1行に収まらないときは、ラベルを落としてアイコンだけにする。
+   折り返すとヘッダーが 2 行になって、その分ライフ欄が潰れてしまうため。 */
+function fitHead(ref) {
+  const head = ref.panel.querySelector('.p-head');
+  if (!head) return;
+  head.classList.remove('icons');
+  if (head.scrollWidth > head.clientWidth + 1) head.classList.add('icons');
+}
+
+/* パネルが細いと ±5 ボタンに幅を取られてライフの数字が小さくなるので、
+   スマホモードで幅が足りないときは ±5 を畳む (長押し連打で代用できる)。 */
+function fitLifeRow(ref) {
+  const life = ref.panel.querySelector('.p-life');
+  if (!life) return;
+  life.classList.remove('no-big5');
+  if (S.settings.phoneMode && life.offsetWidth < 230) life.classList.add('no-big5');
+}
+
+function fitPanel(ref) { fitHead(ref); fitLifeRow(ref); fitCmdDensity(ref); fitLifeNumber(ref); }
+
+function fitAllLifeNumbers() { refs.forEach(r => r && fitPanel(r)); }
 
 /* パネルの寸法が変わったら測り直す */
 const lifeObserver = new ResizeObserver(entries => {
   for (const e of entries) {
     const i = Number(e.target.dataset.p);
-    if (refs[i]) fitLifeNumber(refs[i]);
+    if (refs[i]) fitPanel(refs[i]);
   }
 });
 
@@ -433,7 +498,9 @@ function stepper(label, dataset, opts = {}) {
   const val = el('div', 'st-value', '0');
   core.append(lab, val);
 
-  wrap.append(dec, core, inc);
+  // 統率者ダメージ欄は「ダメージを受ける = 左をタップ」でライフと揃えるため、± を左右逆に置く
+  if (opts.reverse) wrap.append(inc, core, dec);
+  else wrap.append(dec, core, inc);
   return { wrap, val };
 }
 
@@ -487,7 +554,8 @@ function rotatedSeatMap(layout, rot) {
   // 「誰がどの位置か」だけを再現する。高さは中身なりに詰める。
   return {
     cols: `repeat(${cols}, 1fr)`,
-    rows: `repeat(${rows}, auto)`,
+    // スマホモードはカウンター行がない分、マップを縦に伸ばしてチップを大きくする
+    rows: `repeat(${rows}, ${S.settings.phoneMode ? 'minmax(min-content, 1fr)' : 'auto'})`,
     colCount: cols,
     seats: cells,
   };
@@ -520,7 +588,8 @@ function buildCmd(i, ref) {
       if (S.settings.showTax) {
         for (let c = 0; c < op.commanders; c++) {
           const st = stepper('統率者税', { act: 'tax', p: String(i), c: String(c) },
-            { step: 2, short: '税', mark: op.commanders > 1 ? COMMANDER_MARK[c] : null });
+            { step: 2, reverse: S.settings.taxPlusLeft, short: '税',
+              mark: op.commanders > 1 ? COMMANDER_MARK[c] : null });
           ref.tax[c] = st;
           cell.appendChild(st.wrap);
           chips++;
@@ -530,7 +599,8 @@ function buildCmd(i, ref) {
       // 自分の統率者を奪われて殴られた場合。稀なので既定では隠しておく
       for (let c = 0; c < op.commanders; c++) {
         const st = stepper('自分の統率者', { act: 'dmg', p: String(i), s: String(i), c: String(c) },
-          { dotColor: colorOf(op), short: '自分', mark: op.commanders > 1 ? COMMANDER_MARK[c] : null });
+          { dotColor: colorOf(op), reverse: S.settings.cmdDmgPlusLeft, short: '自分',
+            mark: op.commanders > 1 ? COMMANDER_MARK[c] : null });
         st.wrap.classList.add('self-dmg');
         ref.dmg[i][c] = st;
         cell.appendChild(st.wrap);
@@ -539,7 +609,8 @@ function buildCmd(i, ref) {
       // 相手の席 → その相手の統率者から受けたダメージ
       for (let c = 0; c < op.commanders; c++) {
         const st = stepper(op.name, { act: 'dmg', p: String(i), s: String(j), c: String(c) },
-          { dotColor: colorOf(op), mark: op.commanders > 1 ? COMMANDER_MARK[c] : null });
+          { dotColor: colorOf(op), reverse: S.settings.cmdDmgPlusLeft,
+            mark: op.commanders > 1 ? COMMANDER_MARK[c] : null });
         ref.dmg[j][c] = st;
         cell.appendChild(st.wrap);
         chips++;
@@ -577,11 +648,6 @@ const cmdObserver = new ResizeObserver(entries => {
 
     // まず極端に狭いときはボタンと数値ごと一段小さくする
     wrap.classList.toggle('xtight', cellWidth < 104);
-    // 自分の席だけチップが増える (統率者税 + 自分の統率者ダメージ) ので、
-    // 横に余裕があれば 2 列に並べて縦のはみ出しを防ぐ。
-    // 自分の席は複数列にまたがることがあるので、均等割りではなく実寸で測る。
-    const ownCell = wrap.querySelector('.cmd-cell.own');
-    wrap.classList.toggle('own2col', !!ownCell && ownCell.offsetWidth >= 260);
 
     // 名前が実際に入りきるかを測って決める
     let need = 0, avail = Infinity;
@@ -622,6 +688,9 @@ function update() {
 
     if (r.monarch) r.monarch.classList.toggle('on', S.monarch === i);
     if (r.ascend) r.ascend.classList.toggle('on', p.ascend);
+    if (r.fortitude) r.fortitude.classList.toggle('on', p.fortitude);
+    if (r.partner) r.partner.classList.toggle('on', p.commanders > 1);
+    if (r.first) r.first.classList.toggle('show', S.firstPlayer === i);
 
     let lethal = p.life <= 0;
 
@@ -735,6 +804,20 @@ function doAction(node) {
       pushHistory({ act: 'ascend', p: i, from, to: p.ascend });
       break;
     }
+    case 'fortitude': {
+      const from = p.fortitude;
+      p.fortitude = !from;
+      pushHistory({ act: 'fortitude', p: i, from, to: p.fortitude });
+      break;
+    }
+    case 'partner': {
+      // 共闘の ON/OFF。B 側の値は消さず残すので、戻せば復活する
+      p.commanders = p.commanders === 2 ? 1 : 2;
+      buildBoard();
+      save();
+      toast(`${p.name}: 共闘 ${p.commanders === 2 ? 'ON' : 'OFF'}`);
+      return;
+    }
     case 'selfdmg': {
       // 統率者税欄の長押し → 自分の統率者ダメージ欄の表示切り替え
       const selfTotal = p.dmg[i].slice(0, p.commanders).reduce((a, b) => a + b, 0);
@@ -777,6 +860,7 @@ function undo() {
     case 'tax': p.tax[e.c] = e.from; break;
     case 'monarch': S.monarch = e.from; break;
     case 'ascend': p.ascend = e.from; break;
+    case 'fortitude': p.fortitude = e.from; break;
   }
   update();
   save();
@@ -807,6 +891,7 @@ function describe(e) {
     case 'tax': return { who: nameOf(e.p), what: '統率者税', delta: e.to - e.from, tail: `${e.from} → ${e.to}` };
     case 'monarch': return { who: e.to == null ? '—' : nameOf(e.to), what: '統治者', delta: 0, tail: e.to == null ? '解除' : '獲得' };
     case 'ascend': return { who: nameOf(e.p), what: '昇殿', delta: 0, tail: e.to ? 'ON' : 'OFF' };
+    case 'fortitude': return { who: nameOf(e.p), what: '不屈の物語', delta: 0, tail: e.to ? 'ON' : 'OFF' };
     default: return { who: '', what: e.act, delta: 0, tail: '' };
   }
 }
@@ -979,11 +1064,14 @@ async function resetGame() {
     p.life = S.settings.startingLife;
     p.poison = p.energy = p.exp = p.speed = p.ring = 0;
     p.ascend = false;
+    p.fortitude = false;
     p.tax = [0, 0];
     p.dmg = Array.from({ length: MAX_PLAYERS }, () => [0, 0]);
     p.showSelfDmg = false;
   });
   S.monarch = null;
+  S.firstPlayer = null;
+  stopFirstRoll();
   S.timer = { running: false, base: 0, startedAt: 0 };
   S.history = [];
   clearLifeDeltas();
@@ -991,6 +1079,108 @@ async function resetGame() {
   renderClock();
   save();
   toast('リセットしました');
+}
+
+/* --------------------------------------------------------------------------
+   タブレット / スマホ 表示モード
+   スマホモードでは縦積み 1 列にし、ライフ / 統率者ダメージ / 統率者税 /
+   共闘 / 各フラグだけに絞る (毒やエネルギーなどのカウンターは隠す)。
+   -------------------------------------------------------------------------- */
+
+function applyMode() {
+  document.body.classList.toggle('phone', !!S.settings.phoneMode);
+  const label = $('#btnModeLabel');
+  if (label) label.textContent = S.settings.phoneMode ? 'タブレット' : 'スマホ';
+  const btn = $('#btnMode');
+  if (btn) btn.classList.toggle('on', !!S.settings.phoneMode);
+}
+
+/* ホーム画面から起動した PWA かどうか (その場合は元からアドレスバーがない) */
+function isStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches
+    || window.matchMedia('(display-mode: fullscreen)').matches
+    || navigator.standalone === true;
+}
+
+/* アドレスバーを消す。Android Chrome では向きの固定にも全画面が必要。
+   いずれもユーザ操作の直後でないと許可されないので、モードボタンから呼ぶ。 */
+async function enterFullscreen() {
+  if (isStandalone() || document.fullscreenElement) return true;
+  const el = document.documentElement;
+  if (!el.requestFullscreen) return false;          // iOS Safari は非対応
+  try {
+    await el.requestFullscreen({ navigationUI: 'hide' });
+    return true;
+  } catch (err) {
+    console.warn('全画面にできませんでした', err);
+    return false;
+  }
+}
+
+async function exitFullscreen() {
+  if (!document.fullscreenElement || !document.exitFullscreen) return;
+  try { await document.exitFullscreen(); } catch (err) { console.warn('全画面を解除できませんでした', err); }
+}
+
+async function lockLandscape() {
+  const o = screen.orientation;
+  if (!o || !o.lock) return false;
+  try { await o.lock('landscape'); return true; }
+  catch (err) { console.warn('横向きに固定できませんでした', err); return false; }
+}
+
+function unlockOrientation() {
+  try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); }
+  catch (err) { /* 非対応環境は無視 */ }
+}
+
+async function togglePhoneMode() {
+  S.settings.phoneMode = !S.settings.phoneMode;
+  applyMode();
+  buildBoard();
+  save();
+
+  if (S.settings.phoneMode) {
+    await enterFullscreen();
+    const locked = await lockLandscape();
+    toast(locked ? 'スマホ表示 (横向き固定) に切り替えました'
+                 : 'スマホ表示に切り替えました');
+  } else {
+    unlockOrientation();
+    await exitFullscreen();
+    toast('タブレット表示に戻しました');
+  }
+}
+
+/* --------------------------------------------------------------------------
+   先攻プレイヤーのランダム決定
+   -------------------------------------------------------------------------- */
+
+let firstRollTimer = 0;
+
+function stopFirstRoll() {
+  clearInterval(firstRollTimer);
+  firstRollTimer = 0;
+}
+
+function rollFirstPlayer() {
+  if (firstRollTimer) return;          // 抽選中の連打は無視
+  const n = S.settings.playerCount;
+  const winner = Math.floor(Math.random() * n);
+  const total = n * 2 + winner + 1;    // 最後の 1 回が winner になるように回す
+  let tick = 0;
+
+  firstRollTimer = setInterval(() => {
+    S.firstPlayer = tick % n;
+    refs.forEach((r, i) => r && r.first && r.first.classList.toggle('show', S.firstPlayer === i));
+    if (++tick >= total) {
+      stopFirstRoll();
+      S.firstPlayer = winner;
+      update();
+      save();
+      toast(`先攻: ${S.players[winner].name}`);
+    }
+  }, 70);
 }
 
 /* --------------------------------------------------------------------------
@@ -1197,6 +1387,8 @@ function renderSettings() {
     v => { st.showMonarch = v; buildBoard(); save(); }));
   fVis.appendChild(toggleRow('昇殿', null, () => st.showAscend,
     v => { st.showAscend = v; buildBoard(); save(); }));
+  fVis.appendChild(toggleRow('不屈の物語', null, () => st.showFortitude,
+    v => { st.showFortitude = v; buildBoard(); save(); }));
   fVis.appendChild(el('div', 'note', '使わないカウンターを隠すと、1つあたりのボタンが大きくなり押しやすくなります。'));
   body.appendChild(fVis);
 
@@ -1206,6 +1398,14 @@ function renderSettings() {
     '統率者ダメージを +1 すると、そのプレイヤーのライフが自動で −1 されます。',
     () => st.linkCommanderDamage,
     v => { st.linkCommanderDamage = v; save(); }));
+  fMisc.appendChild(toggleRow('統率者ダメージは ＋ を左に置く',
+    'ライフと同じく「ダメージを受けた＝左をタップ」で揃います。OFF なら − が左。',
+    () => st.cmdDmgPlusLeft,
+    v => { st.cmdDmgPlusLeft = v; buildBoard(); save(); }));
+  fMisc.appendChild(toggleRow('統率者税は ＋ を左に置く',
+    'OFF なら従来どおり − が左、＋ が右です。',
+    () => st.taxPlusLeft,
+    v => { st.taxPlusLeft = v; buildBoard(); save(); }));
   fMisc.appendChild(toggleRow('ライフの ±5 ボタンを表示', null,
     () => st.showBig5,
     v => { st.showBig5 = v; buildBoard(); save(); }));
@@ -1275,6 +1475,8 @@ $('#btnClearHistory').addEventListener('click', async () => {
   save();
 });
 $('#btnReset').addEventListener('click', resetGame);
+$('#btnFirst').addEventListener('click', rollFirstPlayer);
+$('#btnMode').addEventListener('click', togglePhoneMode);
 $('#btnTimer').addEventListener('click', toggleTimer);
 $('#btnTimerReset').addEventListener('click', async () => {
   const ok = await dialog({ title: '経過時間をリセット', message: '経過時間を 00:00 に戻します。', okText: 'リセット' });
@@ -1292,6 +1494,8 @@ board.addEventListener('dblclick', e => e.preventDefault());
    起動
    -------------------------------------------------------------------------- */
 
+applyMode();
+if (S.settings.phoneMode) lockLandscape();
 buildBoard();
 renderClock();
 refreshWakeLock();

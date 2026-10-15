@@ -146,13 +146,30 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 .p-head {
   display: flex;
   align-items: center;
-  gap: 1.4cqmin;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  gap: 1cqmin;
   padding: 1.6cqmin 2cqmin 0.4cqmin;
   min-width: 0;
 }
+
+/* 先攻プレイヤーの印 */
+.first-badge {
+  display: none;
+  flex: 0 0 auto;
+  padding: 0.6cqmin 1.8cqmin;
+  border-radius: 1.6cqmin;
+  background: var(--accent);
+  color: #0b0e13;
+  font-size: 3.8cqmin;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: .04em;
+}
+.first-badge.show { display: inline-block; }
 .p-name {
   flex: 1 1 auto;
-  min-width: 0;
+  min-width: 26cqmin;   /* これを下回ると fitHead がフラグをアイコンのみに落とす */
   text-align: left;
   font-size: 5.4cqmin;
   font-weight: 700;
@@ -181,6 +198,18 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   line-height: 1;
 }
 .flag .ico { font-size: 5.2cqmin; }
+.flag .fl-label { white-space: nowrap; }
+/* 幅が足りなければアイコンだけにする (fitHead が付け外し) */
+.p-head.icons .fl-label { display: none; }
+.p-head.icons .flag { padding: 0 1.6cqmin; }
+/* 共闘は席の設定なので、ゲーム中の状態と見分けられるよう破線にする */
+.flag.setup { border-style: dashed; }
+
+/* フラグが増えたら一回り小さくして名前の幅を残す */
+.p-head[data-flags="3"] .flag { height: 8cqmin; padding: 0 1.8cqmin; font-size: 4cqmin; }
+.p-head[data-flags="3"] .flag .ico { font-size: 4.6cqmin; }
+.p-head[data-flags="4"] .flag { height: 7.4cqmin; padding: 0 1.4cqmin; gap: 0.5cqmin; font-size: 3.5cqmin; }
+.p-head[data-flags="4"] .flag .ico { font-size: 4.1cqmin; }
 .flag.on {
   background: color-mix(in srgb, var(--accent) 34%, transparent);
   border-color: var(--accent);
@@ -220,7 +249,7 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   justify-content: center;
   overflow: hidden;
   /* ここは「最大サイズ」。実際に入りきらなければ fitLifeNumber() が縮める */
-  font-size: 30cqmin;
+  font-size: 25cqmin;
   font-weight: 800;
   line-height: .9;
   font-variant-numeric: tabular-nums;
@@ -351,9 +380,9 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 /* 自分の統率者を奪われて殴られたぶん。稀なので統率者税欄の長押しで出す */
 .self-dmg { display: none; }
 .cmd-cell.own.reveal .self-dmg { display: inline-grid; }
-.p-cmd .stepper { height: 10.4cqmin; }
-.p-cmd .st-btn { width: 8cqmin; font-size: 5.4cqmin; }
-.p-cmd .st-label { font-size: 3cqmin; }
+.p-cmd .stepper { height: 13.2cqmin; }
+.p-cmd .st-btn { width: 10.2cqmin; font-size: 6.8cqmin; }
+.p-cmd .st-label { font-size: 3.5cqmin; }
 .p-cmd .st-core { padding: 0 0.6cqmin; }
 
 /* マスが狭いときは名前を落とし、色ドット・短縮名・A/B と数値だけにする。
@@ -363,17 +392,36 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 .p-cmd.tight .st-name { max-width: 0; }
 .p-cmd.tight .st-short { display: inline; }
 
-.p-cmd.xtight .st-btn { width: 7cqmin; font-size: 5cqmin; }
-.p-cmd.xtight .st-value { font-size: 4.6cqmin; }
-.p-cmd.xtight .st-label { font-size: 2.5cqmin; }
+.p-cmd.xtight .st-btn { width: 7.8cqmin; font-size: 5.4cqmin; }
+.p-cmd.xtight .st-value { font-size: 5.2cqmin; }
+.p-cmd.xtight .st-label { font-size: 2.8cqmin; }
 .p-cmd.xtight .st-core { padding: 0 0.3cqmin; }
-.p-cmd .st-value { font-size: 5.2cqmin; }
+.p-cmd .st-value { font-size: 6.5cqmin; }
 /* チップ数が多い席用の縮小モード */
-.p-cmd.dense .stepper { height: 8.8cqmin; }
-.p-cmd.dense .st-btn { width: 6.8cqmin; font-size: 4.6cqmin; }
-.p-cmd.dense .st-label { font-size: 2.6cqmin; }
-.p-cmd.dense .st-value { font-size: 4.4cqmin; }
+.p-cmd.dense .stepper { height: 11cqmin; }
+.p-cmd.dense .st-btn { width: 8.4cqmin; font-size: 5.6cqmin; }
+.p-cmd.dense .st-label { font-size: 3cqmin; }
+.p-cmd.dense .st-value { font-size: 5.4cqmin; }
 .p-cmd.dense { gap: 0.7cqmin; }
+
+/* パネルに収まらないときだけ、拡大前の大きさに戻す (fitCmdDensity が付け外しする) */
+.p-cmd.compact .stepper { height: 10.4cqmin; }
+.p-cmd.compact .st-btn { width: 8cqmin; font-size: 5.4cqmin; }
+.p-cmd.compact .st-label { font-size: 3cqmin; }
+.p-cmd.compact .st-value { font-size: 5.2cqmin; }
+.p-cmd.compact.dense .stepper { height: 8.8cqmin; }
+.p-cmd.compact.dense .st-btn { width: 6.8cqmin; font-size: 4.6cqmin; }
+.p-cmd.compact.dense .st-label { font-size: 2.6cqmin; }
+.p-cmd.compact.dense .st-value { font-size: 4.4cqmin; }
+/* それでも入らないときの最終段 */
+.p-cmd.compact2 .stepper { height: 8.8cqmin; }
+.p-cmd.compact2 .st-btn { width: 6.8cqmin; font-size: 4.6cqmin; }
+.p-cmd.compact2 .st-label { font-size: 2.6cqmin; }
+.p-cmd.compact2 .st-value { font-size: 4.4cqmin; }
+.p-cmd.compact2.dense .stepper { height: 7.4cqmin; }
+.p-cmd.compact2.dense .st-btn { width: 5.8cqmin; font-size: 4cqmin; }
+.p-cmd.compact2.dense .st-label { font-size: 2.3cqmin; }
+.p-cmd.compact2.dense .st-value { font-size: 3.8cqmin; }
 
 .st-dot {
   display: inline-block;
@@ -413,7 +461,7 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 
   /* 横に余裕ができた分、要素をひと回り大きく。
      ライフの数字は 3 桁でもライフ列からはみ出さないよう cqw で頭打ちにする */
-  .life-val { font-size: 52cqmin; }
+  .life-val { font-size: 44cqmin; }
   .life-btn.big { font-size: 12cqmin; }
   .life-btn.small { font-size: 8cqmin; }
 
@@ -422,14 +470,30 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   .st-label { font-size: 3.6cqmin; }
   .st-value { font-size: 6.4cqmin; }
   .st-dot { width: 2.6cqmin; height: 2.6cqmin; }
-  .p-cmd .stepper { height: 12cqmin; }
-  .p-cmd .st-btn { width: 9cqmin; font-size: 6.2cqmin; }
-  .p-cmd .st-label { font-size: 3.5cqmin; max-width: 30cqmin; }
-  .p-cmd .st-value { font-size: 6cqmin; }
-  .p-cmd.dense .stepper { height: 10cqmin; }
-  .p-cmd.dense .st-btn { width: 7.6cqmin; font-size: 5.2cqmin; }
-  .p-cmd.dense .st-label { font-size: 3cqmin; max-width: 25cqmin; }
-  .p-cmd.dense .st-value { font-size: 5.2cqmin; }
+  .p-cmd .stepper { height: 15cqmin; }
+  .p-cmd .st-btn { width: 11.4cqmin; font-size: 7.6cqmin; }
+  .p-cmd .st-label { font-size: 4.1cqmin; max-width: 30cqmin; }
+  .p-cmd .st-value { font-size: 7.2cqmin; }
+  .p-cmd.dense .stepper { height: 12.4cqmin; }
+  .p-cmd.dense .st-btn { width: 9.4cqmin; font-size: 6.4cqmin; }
+  .p-cmd.dense .st-label { font-size: 3.5cqmin; max-width: 25cqmin; }
+  .p-cmd.dense .st-value { font-size: 6.2cqmin; }
+  .p-cmd.compact .stepper { height: 12cqmin; }
+  .p-cmd.compact .st-btn { width: 9cqmin; font-size: 6.2cqmin; }
+  .p-cmd.compact .st-label { font-size: 3.5cqmin; }
+  .p-cmd.compact .st-value { font-size: 6cqmin; }
+  .p-cmd.compact.dense .stepper { height: 10cqmin; }
+  .p-cmd.compact.dense .st-btn { width: 7.6cqmin; font-size: 5.2cqmin; }
+  .p-cmd.compact.dense .st-label { font-size: 3cqmin; }
+  .p-cmd.compact.dense .st-value { font-size: 5.2cqmin; }
+  .p-cmd.compact2 .stepper { height: 10cqmin; }
+  .p-cmd.compact2 .st-btn { width: 7.6cqmin; font-size: 5.2cqmin; }
+  .p-cmd.compact2 .st-label { font-size: 3cqmin; }
+  .p-cmd.compact2 .st-value { font-size: 5.2cqmin; }
+  .p-cmd.compact2.dense .stepper { height: 8.4cqmin; }
+  .p-cmd.compact2.dense .st-btn { width: 6.4cqmin; font-size: 4.4cqmin; }
+  .p-cmd.compact2.dense .st-label { font-size: 2.6cqmin; }
+  .p-cmd.compact2.dense .st-value { font-size: 4.4cqmin; }
 
   .p-name { font-size: 6.4cqmin; }
   .flag { height: 10cqmin; font-size: 5cqmin; border-radius: 2.4cqmin; padding: 0 2.6cqmin; }
@@ -671,3 +735,69 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   z-index: 100;
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ==========================================================================
+   スマホモード
+   座席レイアウトはタブレットと共通 (端末をテーブル中央に置いて四方から囲む)。
+   違いは「表示項目を絞ること」と、空いた分を操作系に回すこと。
+   ========================================================================== */
+
+#btnMode.on { border-color: #4d86c4; background: #2f5a8f; color: var(--fg); }
+
+/* 毒・エネルギー・経験・速度・指輪はスマホモードでは出さない */
+body.phone .p-counters { display: none; }
+
+/* パネル内の構造を固定し、カウンター行分の余白を
+   ライフだけでなく統率者ダメージ欄にも配分する */
+body.phone .p-inner {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1.5fr) 0 minmax(min-content, 1fr);
+  grid-template-areas: "head" "life" "counters" "cmd";
+}
+body.phone .p-head { grid-area: head; }
+body.phone .p-life { grid-area: life; }
+body.phone .p-counters { grid-area: counters; }
+body.phone .p-cmd { grid-area: cmd; }
+
+/* 横長なパネル (囲みレイアウトの左右席など) はライフと横並びにする */
+@container (min-aspect-ratio: 19 / 10) {
+  body.phone .p-inner {
+    grid-template-columns: minmax(0, 1fr) minmax(min-content, 1.25fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "head head" "life cmd";
+  }
+}
+
+/* マップのマスとチップを伸ばして、割り当てられた高さを使い切る */
+body.phone .cmd-cell { grid-auto-rows: minmax(min-content, 1fr); }
+body.phone .cmd-cell .stepper { height: auto; max-height: 30cqmin; }
+
+/* カウンター行がなくなったぶん、統率者ダメージ / 税の文字を大きくする */
+body.phone .p-cmd .st-btn { width: 12cqmin; font-size: 8cqmin; }
+body.phone .p-cmd .st-label { font-size: 4cqmin; }
+body.phone .p-cmd .st-value { font-size: 7.6cqmin; }
+body.phone .p-cmd.dense .st-btn { width: 10cqmin; font-size: 6.6cqmin; }
+body.phone .p-cmd.dense .st-label { font-size: 3.4cqmin; }
+body.phone .p-cmd.dense .st-value { font-size: 6.4cqmin; }
+
+/* 画面が狭いときは上部バーを折り返す (横 375px だと 1 行に収まらないため)。
+   モードに関係なく効かせる。 */
+@media (max-width: 560px) {
+  #topbar {
+    height: auto;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px;
+  }
+  .tb-group { gap: 4px; }
+  .tb-btn { height: 32px; padding: 0 10px; font-size: 16px; }
+  .tb-clock { font-size: 15px; }
+  .tb-timer { font-size: 19px; min-width: 3.4em; }
+}
+
+/* ±5 を畳んだときのライフ行 (fitLifeRow が付け外し) */
+.p-life.no-big5 { grid-template-columns: 1fr 2.6fr 1fr; }
+.p-life.no-big5 .life-btn.small { display: none; }
