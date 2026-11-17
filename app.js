@@ -900,39 +900,80 @@ function describe(e) {
    入力: 1タップ即反映 + 長押しリピート
    -------------------------------------------------------------------------- */
 
-let repeatTimer = 0, repeatDelay = 0, repeatNode = null;
+/* 指 (pointerId) ごとに長押しタイマーを持つ。
+   以前は 1 組のタイマーを共有していたため、押下が重なる (チャタリング・2 人同時タップ) と
+   先のタイマーが上書きされて行方不明になり、指を離しても止まらない連打が起きていた。 */
+const presses = new Map();   // pointerId -> { node, delay, timer }
 
-function stopRepeat() {
-  clearTimeout(repeatDelay);
-  clearInterval(repeatTimer);
-  repeatDelay = repeatTimer = 0;
-  repeatNode = null;
+function stopPress(id) {
+  const p = presses.get(id);
+  if (!p) return;
+  clearTimeout(p.delay);
+  clearInterval(p.timer);
+  presses.delete(id);
 }
+function stopAllPresses() { [...presses.keys()].forEach(stopPress); }
 
 const HOLD_MS = 550;
+
+/* 誤検知対策: 同じボタンが極端に短い間隔で押されたら 2 回目以降は無視する。
+   人が意図して連打できる間隔は速くても 100ms 程度なので、それより短いものは
+   タッチパネルのチャタリング (1 回のタップが複数回の押下として届く) とみなす。
+   別のボタン (別プレイヤーのパネルなど) への同時タップは止めない。 */
+const BOUNCE_MS = 90;
+const lastPress = new Map();  // ボタン識別子 -> 最後に受け付けた時刻
+const pressKey = n => [n.dataset.act, n.dataset.p, n.dataset.s, n.dataset.c, n.dataset.key, n.dataset.d]
+  .map(v => v ?? '').join('|');
 
 board.addEventListener('pointerdown', e => {
   const node = e.target.closest('[data-act]');
   if (!node) return;
   e.preventDefault();
 
+  // マウスの右/中ボタンは無視
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+  // 同じ指で押下が二重に届いたら古いほうを確実に止める
+  stopPress(e.pointerId);
+
+  const key = pressKey(node);
+  const now = performance.now();
+  const prev = lastPress.get(key);
+  lastPress.set(key, now);
+  if (prev !== undefined && now - prev < BOUNCE_MS) return;
+
+  // 同じボタンを別の指 (誤検知の 2 点目) で押していたら、そちらのリピートも止める
+  for (const [id, p] of presses) if (p.node === node) stopPress(id);
+
+  const press = { node, delay: 0, timer: 0 };
+  presses.set(e.pointerId, press);
+
   // 長押しでのみ発火する操作 (滅多に使わないので誤爆させない)
   if (node.dataset.hold === '1') {
-    repeatDelay = setTimeout(() => { doAction(node); stopRepeat(); }, HOLD_MS);
+    press.delay = setTimeout(() => { stopPress(e.pointerId); doAction(node); }, HOLD_MS);
     return;
   }
 
   doAction(node);
-  if (node.dataset.rep === '0') return;
-  repeatNode = node;
-  repeatDelay = setTimeout(() => {
-    repeatTimer = setInterval(() => {
-      if (repeatNode) doAction(repeatNode);
+  if (node.dataset.rep === '0') { presses.delete(e.pointerId); return; }
+  press.delay = setTimeout(() => {
+    press.timer = setInterval(() => {
+      // 盤面の再描画でボタンが消えていたら止める
+      if (!node.isConnected) { stopPress(e.pointerId); return; }
+      doAction(node);
     }, 90);
   }, 420);
 });
-['pointerup', 'pointercancel', 'pointerleave'].forEach(t =>
-  window.addEventListener(t, stopRepeat));
+['pointerup', 'pointercancel'].forEach(t =>
+  window.addEventListener(t, e => stopPress(e.pointerId)));
+// 指がボタンの外へずれたら、そのボタンのリピートを止める
+board.addEventListener('pointerout', e => {
+  const p = presses.get(e.pointerId);
+  if (p && !p.node.contains(e.relatedTarget)) stopPress(e.pointerId);
+});
+// 離した通知が届かなかった場合の保険
+window.addEventListener('blur', stopAllPresses);
+document.addEventListener('visibilitychange', stopAllPresses);
 board.addEventListener('contextmenu', e => e.preventDefault());
 
 /* --------------------------------------------------------------------------
